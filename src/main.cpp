@@ -16,40 +16,60 @@
 #define RX_BLUETOOTH 10
 #define TX_BLUETOOTH 11
 
-//constantes
-#define TAMANHO_STRING_COMANDO 6
-
 //definicao de valores
 int marcha = 1,
     marcha_re_ligada = 0,
     angulo_volante = 0,
+    valor_velocidade = 0,
     velocidade = 0;
 
-int valor_rotacao_volante,
-    valor_velocidade,
-    ajuste_angular;
+unsigned long int timer;
 
 bool estado_acelerador,
      estado_embreagem_atual,
      estado_embreagem_anterior,
      estado_freio;
 
-String string_velocidade,
-       string_rotacao_volante;
-
 Servo direcao; //Controle do servo que comanda a direção do carro
 
 SoftwareSerial modulo_bluetooth(RX_BLUETOOTH, TX_BLUETOOTH);
 
+void enviarInterface() {
+  // 1. Entra no modo de configuração de UI
+  modulo_bluetooth.println("id set ui"); 
+  delay(200); // Delay maior no início é vital
+
+  // 2. Adiciona os componentes um por um com pausas
+  modulo_bluetooth.println("add button x=0 y=4 w=10 h=20 text=Menu id=menu");
+  delay(100);
+
+  modulo_bluetooth.println("add button x=20 y=46 w=12 h=18 text=Embreagem id=E rid=e");
+  delay(100);
+
+  modulo_bluetooth.println("add touchpad x=4 y=60 w=16 h=34 id=D rid=A xmin=0 xmax=180 ymin=0 ymax=0 label=Direcao");
+  delay(100);
+
+  modulo_bluetooth.println("add touchpad x=82 y=58 w=16 h=36 id=W rid=S xmin=0 xmax=0 ymin=99 ymax=0 label=Acelerador");
+  delay(100);
+
+  modulo_bluetooth.println("add textlog x=82 y=4 w=16 h=36 id=0");
+  delay(100);
+
+  // 3. Finaliza e manda o app desenhar a interface
+  modulo_bluetooth.println("id set gui");
+  delay(200);
+
+  // Agora sim, envia uma mensagem para o log que já deve estar criado
+  modulo_bluetooth.println("0 Interface Renderizada!"); 
+}
+
 void setup() {
     //debugar
-        Serial.begin(9600);
         modulo_bluetooth.begin(9600);
-
+     
     //configuracao dos pinos
         pinMode(MOTOR_FRENTE, OUTPUT);
         pinMode(MOTOR_RE, OUTPUT);
-
 
     //pre comandos
         direcao.attach(DIRECAO); //anexa o servo em um pino digital
@@ -71,9 +91,8 @@ void loop() {
         //processamento
         switch(comando_atual){
           case 'W':
-            string_velocidade = comando.substring(4, 6);
-            valor_velocidade = string_velocidade.toInt();
-            if(valor_velocidade > 50){
+            valor_velocidade = comando.substring(2).toInt();
+            if(valor_velocidade > 80){
                 estado_acelerador = HIGH;
                 estado_freio = LOW;
             }
@@ -81,7 +100,7 @@ void loop() {
             else{
               estado_acelerador = LOW;
               estado_freio = HIGH;
-            }  
+            }
           break;
 
           case 'S':
@@ -90,214 +109,148 @@ void loop() {
           break;
 
           case 'D':
-            string_rotacao_volante = comando.substring(1, 3);
-            valor_rotacao_volante = string_rotacao_volante.toInt();
-            ajuste_angular = map(valor_rotacao_volante,0,  60, 0, 90); //ajusta os valores recebidos pra que sejam usados n     o servo
-            angulo_volante = 90 - ajuste_angular; //de 0 a 90 graus
-            angulo_volante = 90 + ajuste_angular; //de 90 a 180 graus
+            angulo_volante = comando.substring(2).toInt();
           break;
 
           case 'A':
-            //retorno suave do volante ao centro
-              if (angulo_volante < 90){
-                  angulo_volante++;
-              }
-              else if (angulo_volante > 90){
-                  angulo_volante--;
-              }
-              else{
-                  angulo_volante = 90;
-              }
+            //retorno do volante ao centro
+            angulo_volante = 90;
           break;
 
           case 'E':
               estado_embreagem_atual = HIGH;
-            break;
-          
+          break;
+
           case 'e':
-              estado_embreagem_atual = LOW;
-            break;
-            
+              if(estado_embreagem_atual == HIGH){
+                estado_embreagem_atual = LOW;
+              }
+          break;
+
+          case 'u':
+            enviarInterface();
+          break;
+
           default:
           break;
         }
-          direcao.write(angulo_volante);
+  }
+  direcao.write(angulo_volante);
 
-    //funcionamento da embreagem
-        if((estado_embreagem_atual == HIGH) && (estado_embreagem_anterior == LOW) && (estado_acelerador == HIGH)){ //aumenta a marcha se estiver acelerando
-            if(marcha < 5){ //garante o limite maximo de marchas em 5
-                marcha += 1;
-            }
+  //funcionamento da embreagem
+    if((estado_embreagem_atual == HIGH) && (estado_embreagem_anterior == LOW) && (estado_acelerador == HIGH)){ //aumenta a marcha se estiver acelerando
+      if(marcha < 5){ //garante o limite maximo de marchas em 5
+        marcha += 1;
+      }
+    }
+
+    else if((estado_embreagem_atual == HIGH) && (estado_embreagem_anterior == LOW) && (estado_acelerador == LOW)){// reduz a marcha se soltar o ACELERADOR
+      if (marcha > 1){//garante o minimo de marchas em 1
+        marcha -= 1;
         }
-
-        else if((estado_embreagem_atual == HIGH) && (estado_embreagem_anterior == LOW) && (estado_acelerador == LOW)){// reduz a marcha se soltar o ACELERADOR
-            if (marcha > 1){//garante o minimo de marchas em 1
-                marcha -= 1;
-            }
-        }
-
-    //detecta o acionamento da embreagem
-        estado_embreagem_anterior = estado_embreagem_atual;
+    }
 
     //caso esteja de re
-        if((estado_freio == HIGH) && (estado_embreagem_atual == HIGH)){
-            if (marcha_re_ligada == 0){
-                marcha_re_ligada = 1;
-                marcha = 0;
-            }
-            else{
-                marcha = 1;
-                marcha_re_ligada = 0; //sai da marcha re
-            }
-        }
-
-    //frenagem dinamica (curto-circuita os fios (entradas) em low para causar uma forca contra-eletromatriz)
-        if(estado_freio == HIGH){
-            digitalWrite(MOTOR_FRENTE, LOW);
-            digitalWrite(MOTOR_RE, LOW);
-            digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-            digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-            velocidade = 0;
-        }
+    if((estado_freio == HIGH) && (estado_embreagem_atual == HIGH)){
+      if (marcha_re_ligada == 0){
+        marcha_re_ligada = 1;
+        marcha = 0;
+      }
+      else{
+        marcha = 1;
+        marcha_re_ligada = 0; //sai da marcha re
+      }
+    }
 
     //desliga o led de FREIO quando para:
-        if (velocidade == 0){
-            digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-            digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-        }
+    if (velocidade == 0){
+      digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
+      digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
+    }
 
-    //aceleracao gradual
-        if (marcha > 0){
-            analogWrite(MOTOR_FRENTE, velocidade);
-        }
+    if((velocidade > 0) && (estado_acelerador == LOW)){
+        velocidade--;
+        digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
+        digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
+    }
 
     //verifica se teve troca de marchas para adiconar um delay, e simula a preca de rpm na troca de marchas
-        if(estado_embreagem_anterior == HIGH){
-            if (velocidade > 101){
-            velocidade -= 30;
-            digitalWrite(MOTOR_RE, LOW);
-            analogWrite(MOTOR_FRENTE, velocidade);
-            delay(200);
-            }
+    if((estado_embreagem_anterior == HIGH) && (estado_embreagem_atual == LOW)){
+      if (velocidade > 101){
+        velocidade -= 30;
+        digitalWrite(MOTOR_RE, LOW);
+        analogWrite(MOTOR_FRENTE, velocidade);
+        delay(100);
         }
+    }
 
     //velocidades das marchas
     // Marchas: De 1 - 5 cada uma possuindo 51 niveis de potencias cada, que no total dao 255
-        if (estado_acelerador == HIGH){ // tranco inicial pra sair do lugar
-            if (velocidade == 0){
-                velocidade = 45;
+    if(millis() - timer > 50){
+      timer = millis();
+
+      //frenagem dinamica (curto-circuita os fios (entradas) em low para causar uma forca contra-eletromatriz)
+      if(estado_freio == HIGH){
+          digitalWrite(MOTOR_FRENTE, LOW);
+          digitalWrite(MOTOR_RE, LOW);
+          digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
+          digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
+          velocidade = 0;
+      }
+
+      //aceleracao gradual
+      if (marcha > 0){
+        if(estado_acelerador == HIGH){
+          if(velocidade <= (marcha * 51)){
+            if(velocidade < 45){ //tranco inicial
+              velocidade = 45;
             }
-        }
-        switch (marcha){
-            case 0:
-                if((velocidade < 70) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    analogWrite(MOTOR_RE, velocidade);
-                    digitalWrite(MOTOR_FRENTE, LOW);
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-                else if ((velocidade > 0) && (estado_acelerador == LOW)){
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-            break;
-
-            case 1:
-                if((velocidade < 51) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    digitalWrite(MOTOR_RE, LOW);
-                    analogWrite(MOTOR_FRENTE, velocidade);
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-
-                else if ((velocidade > 0) && (estado_acelerador == LOW)){
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-            break;
-
-            case 2:
-                if((velocidade < 102) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-
-                else if ((velocidade > 0) && (estado_acelerador == LOW)){
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-            break;
-
-            case 3:
-                if((velocidade < 153) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-
-                else if ((velocidade > 0) && (estado_acelerador == LOW)){
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-            break;
-
-            case 4:
-                if((velocidade < 204) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-
-                else if ((velocidade > 0) && (estado_acelerador == LOW)){
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-            break;
-
-            case 5:
-                if((velocidade < 255) && (estado_acelerador == HIGH)){
-                    velocidade++;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
-                }
-
-                else if ((velocidade > 0) && (estado_acelerador == LOW)) {
-                    velocidade--;
-                    digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                    digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
-                }
-            break;
-
-            default:
-            if (velocidade > 0){
-                velocidade--;
-                digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
-                digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
+            else if(velocidade < 250){
+              velocidade++;
+              digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
+              digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
             }
-            break;
+          }
         }
+        analogWrite(MOTOR_FRENTE, velocidade);
+      }
 
-            delay(500); //normal em 100
-            Serial.print("Velocidade atual: ");
-            Serial.println(velocidade);
-            Serial.print("\n");
-            Serial.print("Marcha atual: ");
-            Serial.print(marcha);
-            Serial.print("\n");
-            Serial.print("Status Freio: ");
-            Serial.print(estado_freio);
-            Serial.print("\n");
-            Serial.print("Status re: ");
-            Serial.print(marcha_re_ligada);
-            Serial.print("\n");
-  }
+      else if(marcha == 0){ //deteccao da marcha re
+        if(estado_acelerador == HIGH){
+          if(velocidade < 45){ //tranco inicial
+            velocidade = 45;
+          }
+          else if(velocidade < 70){
+            velocidade++;
+            analogWrite(MOTOR_RE, velocidade);
+            digitalWrite(MOTOR_FRENTE, LOW);
+            digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
+            digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
+          }
+        }
+      }
 
+      if ((velocidade > 0) && (estado_acelerador == LOW)){
+          velocidade--;
+          digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
+          digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
+        }
+    }
+    /*
+      Serial.print("\nVelocidade atual\n");
+      Serial.println(velocidade);
+      Serial.print("\nMarcha atual: \n");
+      Serial.print(marcha);
+      Serial.print("");
+      Serial.print("\nStatus Freio: \n");
+      Serial.print(estado_freio);
+      Serial.print("\nStatus re: \n");
+      Serial.print(marcha_re_ligada);
+    */
+   if( estado_embreagem_anterior != estado_embreagem_atual){
+    modulo_bluetooth.print("0 Marcha atual: ");
+    modulo_bluetooth.println(marcha == 0 ? "RE" : String(marcha));
+   }
+    //detecta o acionamento da embreagem
+    estado_embreagem_anterior = estado_embreagem_atual;
 }
