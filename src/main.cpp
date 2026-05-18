@@ -4,17 +4,19 @@
 
 #include <Arduino.h>
 #include <Servo.h>
-#include <SoftwareSerial.h>
+#include <BluetoothSerial.h>
+
+//config bluetooth
+// UUID (identificador do perfil bluetooth - perfil SPP) padrão do HC-05 — apps antigos procuram esse 
+#define SPP_UUID "00001101-0000-1000-8000-00805F9B34FB"
 
 //definicao de portas
-#define DIRECAO 3
+#define DIRECAO 0
 #define FAROL 4
-#define MOTOR_FRENTE 5
-#define MOTOR_RE 6
-#define LUZ_DE_FREIO_ESQUERDA 9
-#define LUZ_DE_FREIO_DIREITA 8
-#define RX_BLUETOOTH 10
-#define TX_BLUETOOTH 11
+#define MOTOR_FRENTE 2
+#define MOTOR_RE 15
+#define LUZ_DE_FREIO_ESQUERDA 32
+#define LUZ_DE_FREIO_DIREITA 33
 
 //definicao de valores
 int marcha = 1,
@@ -32,41 +34,19 @@ bool estado_acelerador,
 
 Servo direcao; //Controle do servo que comanda a direção do carro
 
-SoftwareSerial modulo_bluetooth(RX_BLUETOOTH, TX_BLUETOOTH);
-
-void enviarInterface() {
-  // 1. Entra no modo de configuração de UI
-  modulo_bluetooth.println("id set ui"); 
-  delay(200); // Delay maior no início é vital
-
-  // 2. Adiciona os componentes um por um com pausas
-  modulo_bluetooth.println("add button x=0 y=4 w=10 h=20 text=Menu id=menu");
-  delay(100);
-
-  modulo_bluetooth.println("add button x=20 y=46 w=12 h=18 text=Embreagem id=E rid=e");
-  delay(100);
-
-  modulo_bluetooth.println("add touchpad x=4 y=60 w=16 h=34 id=D rid=A xmin=0 xmax=180 ymin=0 ymax=0 label=Direcao");
-  delay(100);
-
-  modulo_bluetooth.println("add touchpad x=82 y=58 w=16 h=36 id=W rid=S xmin=0 xmax=0 ymin=99 ymax=0 label=Acelerador");
-  delay(100);
-
-  modulo_bluetooth.println("add textlog x=82 y=4 w=16 h=36 id=0");
-  delay(100);
-
-  // 3. Finaliza e manda o app desenhar a interface
-  modulo_bluetooth.println("id set gui");
-  delay(200);
-
-  // Agora sim, envia uma mensagem para o log que já deve estar criado
-  modulo_bluetooth.println("0 Interface Renderizada!"); 
-}
+BluetoothSerial modulo_bluetooth;
 
 void setup() {
-    //debugar
-        modulo_bluetooth.begin(9600);
-     
+
+  Serial.begin(115200);   
+  delay(1000);
+
+    if(modulo_bluetooth.begin("Cin_Car")) {
+        Serial.println("Bluetooth OK!");
+    } else {
+        Serial.println("ERRO Bluetooth");
+    }
+
     //configuracao dos pinos
         pinMode(MOTOR_FRENTE, OUTPUT);
         pinMode(MOTOR_RE, OUTPUT);
@@ -77,21 +57,21 @@ void setup() {
         estado_embreagem_atual = LOW;
 }
 
-void loop() {
+void loop(){
 
   if(modulo_bluetooth.available()){ //executa se o bluetooth estiver ativo
 
     //recebimento e processamento dos comandos recebidos pelo bluetooth
-
+       
         String comando = modulo_bluetooth.readStringUntil('\n');
 
         comando.trim(); //remove os espaços apos o comando
             char comando_atual = comando.charAt(0);
-
+        
         //processamento
         switch(comando_atual){
           case 'W':
-            valor_velocidade = comando.substring(2).toInt();
+            //valor_velocidade = comando.substring(2).toInt();
             if(valor_velocidade > 80){
                 estado_acelerador = HIGH;
                 estado_freio = LOW;
@@ -127,14 +107,11 @@ void loop() {
               }
           break;
 
-          case 'u':
-            enviarInterface();
-          break;
-
           default:
           break;
         }
   }
+
   direcao.write(angulo_volante);
 
   //funcionamento da embreagem
@@ -180,7 +157,7 @@ void loop() {
         velocidade -= 30;
         digitalWrite(MOTOR_RE, LOW);
         analogWrite(MOTOR_FRENTE, velocidade);
-        delay(100);
+          delay(100);
         }
     }
 
@@ -222,7 +199,7 @@ void loop() {
           }
           else if(velocidade < 70){
             velocidade++;
-            analogWrite(MOTOR_RE, velocidade);
+            //analogWrite(MOTOR_RE, velocidade);
             digitalWrite(MOTOR_FRENTE, LOW);
             digitalWrite(LUZ_DE_FREIO_ESQUERDA, HIGH);
             digitalWrite(LUZ_DE_FREIO_DIREITA, HIGH);
@@ -235,22 +212,7 @@ void loop() {
           digitalWrite(LUZ_DE_FREIO_ESQUERDA, LOW);
           digitalWrite(LUZ_DE_FREIO_DIREITA, LOW);
         }
-    }
-    /*
-      Serial.print("\nVelocidade atual\n");
-      Serial.println(velocidade);
-      Serial.print("\nMarcha atual: \n");
-      Serial.print(marcha);
-      Serial.print("");
-      Serial.print("\nStatus Freio: \n");
-      Serial.print(estado_freio);
-      Serial.print("\nStatus re: \n");
-      Serial.print(marcha_re_ligada);
-    */
-   if( estado_embreagem_anterior != estado_embreagem_atual){
-    modulo_bluetooth.print("0 Marcha atual: ");
-    modulo_bluetooth.println(marcha == 0 ? "RE" : String(marcha));
-   }
-    //detecta o acionamento da embreagem
-    estado_embreagem_anterior = estado_embreagem_atual;
+    }  
+      //detecta o acionamento da embreagem
+      estado_embreagem_anterior = estado_embreagem_atual;
 }
