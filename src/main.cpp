@@ -8,7 +8,7 @@
 
 //config bluetooth
 // UUID (identificador do perfil bluetooth - perfil SPP) padrão do HC-05 — apps antigos procuram esse 
-#define SPP_UUID "00001101-0000-1000-8000-00805F9B34FB"
+//#define SPP_UUID "00001101-0000-1000-8000-00805F9B34FB"
 
 //definicao de portas
 #define DIRECAO 0
